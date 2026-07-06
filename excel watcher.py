@@ -1,9 +1,9 @@
 import requests
 import pandas as pd
 from io import BytesIO
-from app.database import SessionLocal
-from app.models import ExcelSource, Transaction
-from app.tasks import analyze_transaction_async
+from database import SessionLocal
+from models import ExcelSource, Transaction
+from tasks import analyze_transaction_async
 
 def check_and_sync_excel(source_id: int):
     db = SessionLocal()
