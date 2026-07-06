@@ -53,7 +53,7 @@ def analyze_transaction_async(transaction_id: str):
     
     db.commit()
     db.close()
-from fastapi import FastAPI; app = FastAPI(title="Real-Time AI Enterprise Financial Audit Portal") 
+from fastapi import FastAPI, Request; app = FastAPI(title="Real-Time AI Enterprise Financial Audit Portal") 
  
 @app.get("/") 
 def read_root(): return {"status": "Real-Time AI Enterprise Financial Audit Portal Running", "docs": "/docs"} 
@@ -62,4 +62,4 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates 
 templates = Jinja2Templates(directory="templates") 
 @app.get("/", response_class=HTMLResponse) 
-def read_root(request: fastapi.Request): return templates.TemplateResponse("index.html", {"request": request}) 
+def read_root(request: Request): return templates.TemplateResponse("index.html", {"request": request}) 
