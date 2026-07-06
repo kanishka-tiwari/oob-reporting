@@ -3,7 +3,7 @@ import json
 import requests
 from celery import Celery
 from database import SessionLocal
-from models import Transaction
+from model import Transaction
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6339/0")
 celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
