@@ -54,3 +54,6 @@ def analyze_transaction_async(transaction_id: str):
     db.commit()
     db.close()
 from fastapi import FastAPI; app = FastAPI(title="Real-Time AI Enterprise Financial Audit Portal") 
+ 
+@app.get("/") 
+def read_root(): return {"status": "Real-Time AI Enterprise Financial Audit Portal Running", "docs": "/docs"} 
