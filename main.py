@@ -1,64 +1,55 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base, SessionLocal
-from app.models import ExcelSource, Transaction
-from app.excel_watcher import check_and_sync_excel
+import os
+import json
+import requests
+from celery import Celery
+from database import SessionLocal
+from models import Transaction
 
-# Initialize database schemes seamlessly inside modern engines
-Base.metadata.create_all(bind=engine)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6339/0")
+celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
 
-app = FastAPI(title="Real-Time AI Enterprise Financial Audit Portal")
+# External Cloud Inference configurations for Render production
+LLM_API_KEY = os.getenv("LLM_API_KEY", "your_api_key_here")
+LLM_URL = "https://api.groq.com/openai/v1/chat/completions" # Or OpenAI endpoint
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.post("/api/v1/source/register")
-def register_excel_source(file_url: str, background_tasks: BackgroundTasks):
+@celery_app.task
+def analyze_transaction_async(transaction_id: str):
     db = SessionLocal()
-    existing = db.query(ExcelSource).filter(ExcelSource.file_url == file_url).first()
-    if existing:
+    txn = db.query(Transaction).filter(Transaction.transaction_id == transaction_id).first()
+    if not txn:
         db.close()
-        raise HTTPException(status_code=400, detail="Excel tracking registry string already verified.")
+        return
+
+    prompt = f"""
+    Analyze this expense transaction for corporate compliance, policy breaches or financial fraud:
+    - Vendor: {txn.vendor}
+    - Amount: ${txn.amount}
+    - Business Justification: "{txn.justification}"
     
-    new_source = ExcelSource(file_url=file_url)
-    db.add(new_source)
+    Respond strictly in JSON format with keys "risk_score" (integer 0-100) and "flags" (brief description string).
+    """
+    
+    headers = {
+        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "response_format": {"type": "json_object"}
+    }
+
+    try:
+        res = requests.post(LLM_URL, json=payload, headers=headers, timeout=10)
+        res_data = res.json()
+        raw_content = res_data['choices'][0]['message']['content']
+        parsed = json.loads(raw_content)
+        
+        txn.risk_score = parsed.get("risk_score", 10)
+        txn.ai_flags = parsed.get("flags", "Passed Verification")
+    except Exception as e:
+        txn.risk_score = 0
+        txn.ai_flags = f"AI processing temporarily offline: {str(e)}"
+    
     db.commit()
-    
-    # Process initial sync instantly
-    background_tasks.add_task(check_and_sync_excel, new_source.id)
     db.close()
-    return {"status": "success", "message": "Excel link tracking registered successfully."}
-
-@app.post("/api/v1/source/poll")
-def poll_all_sources(background_tasks: BackgroundTasks):
-    """
-    Trigger this path via any external cron job utility (like cron-job.org) 
-    every minute to check for updates.
-    """
-    db = SessionLocal()
-    sources = db.query(ExcelSource).all()
-    for source in sources:
-        background_tasks.add_task(check_and_sync_excel, source.id)
-    db.close()
-    return {"status": "success", "message": "Polled changes check pipeline queued."}
-
-@app.get("/reporting/dataset")
-def get_dashboard_dataset():
-    db = SessionLocal()
-    transactions = db.query(Transaction).order_by(Transaction.id.desc()).all()
-    db.close()
-    return [{
-        "id": t.transaction_id,
-        "employee": t.employee_id,
-        "amount": t.amount,
-        "vendor": t.vendor,
-        "category": t.category,
-        "justification": t.justification,
-        "risk": t.risk_score,
-        "flags": t.ai_flags
-    } for t in transactions]
